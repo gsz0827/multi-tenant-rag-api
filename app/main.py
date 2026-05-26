@@ -2,10 +2,6 @@ from fastapi import FastAPI
 
 from app.api import auth, users
 from app.core.config import settings
-from app.db.session import Base, engine
-
-
-Base.metadata.create_all(bind=engine)
 
 
 app = FastAPI(
