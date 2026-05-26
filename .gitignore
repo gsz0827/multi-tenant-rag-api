@@ -30,3 +30,7 @@ storage/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local database
+*.db
+dev.db
