@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, users
+from app.api import auth, organizations, users
 from app.core.config import settings
 
 
@@ -30,3 +30,4 @@ def health_check():
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(users.router, prefix=settings.API_PREFIX)
+app.include_router(organizations.router, prefix=settings.API_PREFIX)
