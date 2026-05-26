@@ -19,3 +19,9 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+
+    knowledge_bases = relationship(
+        "KnowledgeBase",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
