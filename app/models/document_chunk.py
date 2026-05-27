@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
@@ -21,6 +22,8 @@ class DocumentChunk(Base):
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     content_length = Column(Integer, nullable=False)
+
+    embedding = Column(Vector(1536), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

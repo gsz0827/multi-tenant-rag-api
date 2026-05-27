@@ -17,6 +17,8 @@ from app.services.document_parser import parse_document_file
 from app.models.document_chunk import DocumentChunk
 from app.schemas.document_chunk import DocumentChunkRead, DocumentChunkResult
 from app.services.text_splitter import split_text
+from app.schemas.embedding import DocumentEmbeddingResult
+from app.services.embedding_service import create_fake_embedding
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -274,7 +276,60 @@ def chunk_document(
         message="Document chunked successfully",
     )
 
+@router.post("/{document_id}/embed", response_model=DocumentEmbeddingResult)
+def embed_document_chunks(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
 
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if document.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be processed before embedding",
+        )
+
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .order_by(DocumentChunk.chunk_index.asc())
+        .all()
+    )
+
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be chunked before embedding",
+        )
+
+    embedded_count = 0
+
+    for chunk in chunks:
+        chunk.embedding = create_fake_embedding(chunk.content)
+        embedded_count += 1
+
+    db.commit()
+
+    return DocumentEmbeddingResult(
+        document_id=document.id,
+        embedded_chunk_count=embedded_count,
+        message="Document chunks embedded successfully",
+    )
+
+    
 @router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
 def list_document_chunks(
     document_id: int,
@@ -304,7 +359,7 @@ def list_document_chunks(
 
     return chunks
 
-    
+
 @router.get("/{document_id}", response_model=DocumentRead)
 def get_document(
     document_id: int,
