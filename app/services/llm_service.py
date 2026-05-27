@@ -19,21 +19,23 @@ def generate_answer_with_context(
     )
 
     system_prompt = """
-You are a helpful knowledge base assistant.
+    You are a helpful knowledge base assistant.
 
-Answer the user's question using only the provided context.
-If the answer cannot be found in the context, say you don't know based on the provided documents.
-Do not invent facts.
-When helpful, mention which chunk supports your answer.
-""".strip()
+    Answer the user's question using only the provided context.
+    If the answer cannot be found in the context, say you don't know based on the provided documents.
+    Do not invent facts.
+
+    Use citation markers like [1], [2], [3] to show which source chunks support your answer.
+    Only cite source numbers that appear in the provided context.
+    """.strip()
 
     user_prompt = f"""
-Question:
-{question}
+    Question:
+    {question}
 
-Context:
-{context}
-""".strip()
+    Context:
+    {context}
+    """.strip()
 
     response = client.chat.completions.create(
         model=settings.ALIYUN_CHAT_MODEL,

@@ -11,6 +11,7 @@ class RagAskRequest(BaseModel):
 
 class RagSourceChunk(BaseModel):
     document_id: int
+    filename: str
     chunk_id: int
     chunk_index: int
     content: str

@@ -38,6 +38,7 @@ def ask_knowledge_base(
     rows = (
         db.query(
             DocumentChunk,
+            Document,
             DocumentChunk.embedding.l2_distance(query_embedding).label("distance"),
         )
         .join(Document, Document.id == DocumentChunk.document_id)
@@ -60,12 +61,14 @@ def ask_knowledge_base(
 
     for index, row in enumerate(rows, start=1):
         chunk = row[0]
-        distance = float(row[1])
+        document = row[1]
+        distance = float(row[2])
         score = 1 / (1 + distance)
 
         sources.append(
             RagSourceChunk(
                 document_id=chunk.document_id,
+                filename=document.filename,
                 chunk_id=chunk.id,
                 chunk_index=chunk.chunk_index,
                 content=chunk.content,
@@ -74,8 +77,9 @@ def ask_knowledge_base(
         )
 
         context_parts.append(
-            f"[Chunk {index} | document_id={chunk.document_id} | "
-            f"chunk_id={chunk.id} | chunk_index={chunk.chunk_index}]\n"
+            f"[{index}] filename={document.filename} | "
+            f"document_id={chunk.document_id} | "
+            f"chunk_id={chunk.id} | chunk_index={chunk.chunk_index}\n"
             f"{chunk.content}"
         )
 
