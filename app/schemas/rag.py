@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -18,3 +20,18 @@ class RagSourceChunk(BaseModel):
 class RagAskResponse(BaseModel):
     answer: str
     sources: list[RagSourceChunk]
+    history_id: int | None = None
+
+
+class RagHistoryItem(BaseModel):
+    id: int
+    knowledge_base_id: int
+    user_id: int
+    question: str
+    answer: str
+    sources: list[dict]
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
