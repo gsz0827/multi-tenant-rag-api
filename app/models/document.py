@@ -24,6 +24,8 @@ class Document(Base):
 
     storage_path = Column(String(500), nullable=True)
 
+    extracted_text = Column(Text, nullable=True)
+
     status = Column(String(50), default="pending", nullable=False)
     error_message = Column(Text, nullable=True)
 

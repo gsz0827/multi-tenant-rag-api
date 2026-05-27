@@ -12,3 +12,5 @@ python-multipart
 
 psycopg2-binary
 alembic
+pypdf
+python-docx

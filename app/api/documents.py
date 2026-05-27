@@ -12,7 +12,8 @@ from app.db.session import get_db
 from app.models.document import Document
 from app.models.membership import Membership
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentRead
+from app.schemas.document import DocumentCreate, DocumentProcessResult, DocumentRead
+from app.services.document_parser import parse_document_file
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -144,7 +145,74 @@ def list_documents(
 
     return documents
 
+@router.post("/{document_id}/process", response_model=DocumentProcessResult)
+def process_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
 
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if not document.storage_path:
+        document.status = "failed"
+        document.error_message = "Document does not have a stored file"
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document does not have a stored file",
+        )
+
+    document.status = "processing"
+    document.error_message = None
+    db.commit()
+
+    try:
+        extracted_text = parse_document_file(
+            path=document.storage_path,
+            content_type=document.content_type,
+        )
+
+        if not extracted_text.strip():
+            raise ValueError("No text could be extracted from this document")
+
+        document.extracted_text = extracted_text
+        document.status = "completed"
+        document.error_message = None
+
+        db.commit()
+        db.refresh(document)
+
+        return DocumentProcessResult(
+            id=document.id,
+            status=document.status,
+            text_length=len(extracted_text),
+            message="Document processed successfully",
+        )
+
+    except Exception as exc:
+        document.status = "failed"
+        document.error_message = str(exc)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to process document: {exc}",
+        )
+
+        
 @router.get("/{document_id}", response_model=DocumentRead)
 def get_document(
     document_id: int,

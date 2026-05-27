@@ -22,3 +22,10 @@ class DocumentRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DocumentProcessResult(BaseModel):
+    id: int
+    status: str
+    text_length: int
+    message: str
