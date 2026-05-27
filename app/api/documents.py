@@ -419,6 +419,7 @@ def embed_document_chunks(
 @router.post("/{document_id}/prepare", response_model=DocumentPrepareResult)
 def prepare_document_for_rag(
     document_id: int,
+    force: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -435,6 +436,29 @@ def prepare_document_for_rag(
         user=current_user,
         knowledge_base_id=document.knowledge_base_id,
     )
+
+    if not force and is_document_ready_for_rag(document=document, db=db):
+        embedded_chunk_count = (
+            db.query(DocumentChunk)
+            .filter(DocumentChunk.document_id == document.id)
+            .filter(DocumentChunk.embedding.isnot(None))
+            .count()
+        )
+
+        total_chunk_count = (
+            db.query(DocumentChunk)
+            .filter(DocumentChunk.document_id == document.id)
+            .count()
+        )
+
+        return DocumentPrepareResult(
+            document_id=document.id,
+            status=document.status,
+            text_length=len(document.extracted_text or ""),
+            chunk_count=total_chunk_count,
+            embedded_chunk_count=embedded_chunk_count,
+            message="Document is already prepared for RAG",
+        )
 
     try:
         return prepare_single_document(document=document, db=db)
