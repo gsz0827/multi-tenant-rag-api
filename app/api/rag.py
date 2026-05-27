@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_accessible_knowledge_base
@@ -14,6 +14,7 @@ from app.schemas.rag import (
     RagAskRequest,
     RagAskResponse,
     RagHistoryItem,
+    RagHistoryListResponse,
     RagSourceChunk,
 )
 from app.core.config import settings
@@ -158,9 +159,11 @@ def ask_knowledge_base(
     )
 
 
-@router.get("/history", response_model=list[RagHistoryItem])
+@router.get("/history", response_model=RagHistoryListResponse)
 def list_rag_history(
     knowledge_base_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -170,15 +173,29 @@ def list_rag_history(
         knowledge_base_id=knowledge_base_id,
     )
 
-    records = (
+    query = (
         db.query(RagQaRecord)
         .filter(RagQaRecord.knowledge_base_id == knowledge_base_id)
         .filter(RagQaRecord.user_id == current_user.id)
+    )
+
+    total = query.count()
+
+    records = (
+        query
         .order_by(RagQaRecord.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 
-    return records
+    return RagHistoryListResponse(
+        knowledge_base_id=knowledge_base_id,
+        total=total,
+        skip=skip,
+        limit=limit,
+        items=records,
+    )
     
 
 @router.get("/history/{history_id}", response_model=RagHistoryItem)

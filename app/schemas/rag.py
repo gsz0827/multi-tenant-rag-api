@@ -37,3 +37,11 @@ class RagHistoryItem(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+
+class RagHistoryListResponse(BaseModel):
+    knowledge_base_id: int
+    total: int
+    skip: int
+    limit: int
+    items: list[RagHistoryItem]
