@@ -17,7 +17,7 @@ from app.services.document_parser import parse_document_file
 from app.models.document_chunk import DocumentChunk
 from app.schemas.document_chunk import DocumentChunkRead, DocumentChunkResult
 from app.services.text_splitter import split_text
-from app.schemas.embedding import DocumentEmbeddingResult
+from app.schemas.embedding import DocumentEmbeddingResult, DocumentPrepareResult
 from app.services.embedding_service import create_embedding
 
 
@@ -329,6 +329,98 @@ def embed_document_chunks(
         message="Document chunks embedded successfully",
     )
 
+
+@router.post("/{document_id}/prepare", response_model=DocumentPrepareResult)
+def prepare_document_for_rag(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if not document.storage_path:
+        document.status = "failed"
+        document.error_message = "Document does not have a stored file"
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document does not have a stored file",
+        )
+
+    document.status = "processing"
+    document.error_message = None
+    db.commit()
+
+    try:
+        extracted_text = parse_document_file(
+            path=document.storage_path,
+            content_type=document.content_type,
+        )
+
+        if not extracted_text.strip():
+            raise ValueError("No text could be extracted from this document")
+
+        document.extracted_text = extracted_text
+        document.status = "completed"
+        document.error_message = None
+
+        db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document.id
+        ).delete()
+
+        chunks = split_text(
+            text=extracted_text,
+            chunk_size=1000,
+            chunk_overlap=200,
+        )
+
+        embedded_count = 0
+
+        for index, chunk_text in enumerate(chunks):
+            db_chunk = DocumentChunk(
+                document_id=document.id,
+                chunk_index=index,
+                content=chunk_text,
+                content_length=len(chunk_text),
+                embedding=create_embedding(chunk_text),
+            )
+            db.add(db_chunk)
+            embedded_count += 1
+
+        db.commit()
+        db.refresh(document)
+
+        return DocumentPrepareResult(
+            document_id=document.id,
+            status=document.status,
+            text_length=len(extracted_text),
+            chunk_count=len(chunks),
+            embedded_chunk_count=embedded_count,
+            message="Document prepared for RAG successfully",
+        )
+
+    except Exception as exc:
+        document.status = "failed"
+        document.error_message = str(exc)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to prepare document for RAG: {exc}",
+        )
 
 @router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
 def list_document_chunks(
