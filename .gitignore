@@ -34,3 +34,6 @@ htmlcov/
 # Local database
 *.db
 dev.db
+
+# Uploaded files
+storage/

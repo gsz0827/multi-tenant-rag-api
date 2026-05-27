@@ -22,6 +22,8 @@ class Document(Base):
     content_type = Column(String(100), nullable=True)
     file_size = Column(Integer, nullable=True)
 
+    storage_path = Column(String(500), nullable=True)
+
     status = Column(String(50), default="pending", nullable=False)
     error_message = Column(Text, nullable=True)
 

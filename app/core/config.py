@@ -6,11 +6,13 @@ class Settings(BaseSettings):
     APP_ENV: str = "dev"
     API_PREFIX: str = "/api"
 
-    DATABASE_URL: str = "sqlite:///./dev.db"
+    DATABASE_URL: str
 
-    SECRET_KEY: str = "change-this-secret-key"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    STORAGE_DIR: str = "storage"
 
     class Config:
         env_file = ".env"
