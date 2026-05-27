@@ -27,3 +27,9 @@ class KnowledgeBase(Base):
         "Organization",
         back_populates="knowledge_bases",
     )
+
+    documents = relationship(
+        "Document",
+        back_populates="knowledge_base",
+        cascade="all, delete-orphan",
+    )
