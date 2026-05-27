@@ -16,7 +16,7 @@ from app.schemas.rag import (
     RagHistoryItem,
     RagSourceChunk,
 )
-
+from app.core.config import settings
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -83,6 +83,32 @@ def ask_knowledge_base(
             f"{chunk.content}"
         )
 
+    best_score = sources[0].score if sources else 0.0
+
+    if best_score < settings.RAG_MIN_SCORE:
+        answer = (
+            "I don't know based on the provided documents. "
+            "I could not find sufficiently relevant source chunks for this question."
+        )
+
+        record = RagQaRecord(
+            knowledge_base_id=request.knowledge_base_id,
+            user_id=current_user.id,
+            question=request.question,
+            answer=answer,
+            sources=[source.model_dump() for source in sources],
+        )
+
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
+        return RagAskResponse(
+            answer=answer,
+            sources=sources,
+            history_id=record.id,
+        )
+        
     context = "\n\n---\n\n".join(context_parts)
 
     answer = generate_answer_with_context(

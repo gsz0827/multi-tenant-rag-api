@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "aliyun"
     ALIYUN_CHAT_MODEL: str = "qwen-plus"
 
+    RAG_MIN_SCORE: float = 0.2
+
     model_config = SettingsConfigDict(env_file=ENV_FILE)
 
 
