@@ -23,7 +23,6 @@ class Document(Base):
     file_size = Column(Integer, nullable=True)
 
     storage_path = Column(String(500), nullable=True)
-
     extracted_text = Column(Text, nullable=True)
 
     status = Column(String(50), default="pending", nullable=False)
@@ -34,4 +33,10 @@ class Document(Base):
     knowledge_base = relationship(
         "KnowledgeBase",
         back_populates="documents",
+    )
+
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
     )

@@ -14,6 +14,9 @@ from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.document import DocumentCreate, DocumentProcessResult, DocumentRead
 from app.services.document_parser import parse_document_file
+from app.models.document_chunk import DocumentChunk
+from app.schemas.document_chunk import DocumentChunkRead, DocumentChunkResult
+from app.services.text_splitter import split_text
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -212,7 +215,96 @@ def process_document(
             detail=f"Failed to process document: {exc}",
         )
 
-        
+@router.post("/{document_id}/chunk", response_model=DocumentChunkResult)
+def chunk_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if document.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document must be processed before chunking",
+        )
+
+    if not document.extracted_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document does not have extracted text",
+        )
+
+    db.query(DocumentChunk).filter(
+        DocumentChunk.document_id == document.id
+    ).delete()
+
+    chunks = split_text(
+        text=document.extracted_text,
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+
+    for index, chunk in enumerate(chunks):
+        db_chunk = DocumentChunk(
+            document_id=document.id,
+            chunk_index=index,
+            content=chunk,
+            content_length=len(chunk),
+        )
+        db.add(db_chunk)
+
+    db.commit()
+
+    return DocumentChunkResult(
+        document_id=document.id,
+        chunk_count=len(chunks),
+        message="Document chunked successfully",
+    )
+
+
+@router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
+def list_document_chunks(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .order_by(DocumentChunk.chunk_index.asc())
+        .all()
+    )
+
+    return chunks
+
+    
 @router.get("/{document_id}", response_model=DocumentRead)
 def get_document(
     document_id: int,
