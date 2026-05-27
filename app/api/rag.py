@@ -179,3 +179,65 @@ def list_rag_history(
     )
 
     return records
+    
+
+@router.get("/history/{history_id}", response_model=RagHistoryItem)
+def get_rag_history_detail(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = (
+        db.query(RagQaRecord)
+        .filter(RagQaRecord.id == history_id)
+        .filter(RagQaRecord.user_id == current_user.id)
+        .first()
+    )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="RAG history record not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=record.knowledge_base_id,
+    )
+
+    return record
+
+
+@router.delete("/history/{history_id}")
+def delete_rag_history(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = (
+        db.query(RagQaRecord)
+        .filter(RagQaRecord.id == history_id)
+        .filter(RagQaRecord.user_id == current_user.id)
+        .first()
+    )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="RAG history record not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=record.knowledge_base_id,
+    )
+
+    db.delete(record)
+    db.commit()
+
+    return {
+        "message": "RAG history record deleted successfully",
+        "history_id": history_id,
+    }
