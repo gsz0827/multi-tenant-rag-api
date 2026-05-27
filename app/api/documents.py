@@ -18,7 +18,7 @@ from app.models.document_chunk import DocumentChunk
 from app.schemas.document_chunk import DocumentChunkRead, DocumentChunkResult
 from app.services.text_splitter import split_text
 from app.schemas.embedding import DocumentEmbeddingResult
-from app.services.embedding_service import create_fake_embedding
+from app.services.embedding_service import create_embedding
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -318,7 +318,7 @@ def embed_document_chunks(
     embedded_count = 0
 
     for chunk in chunks:
-        chunk.embedding = create_fake_embedding(chunk.content)
+        chunk.embedding = create_embedding(chunk.content)
         embedded_count += 1
 
     db.commit()
@@ -329,7 +329,7 @@ def embed_document_chunks(
         message="Document chunks embedded successfully",
     )
 
-    
+
 @router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
 def list_document_chunks(
     document_id: int,

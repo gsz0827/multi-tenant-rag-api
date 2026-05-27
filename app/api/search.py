@@ -8,7 +8,7 @@ from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.user import User
 from app.schemas.search import SearchRequest, SearchResponse, SearchResultChunk
-from app.services.embedding_service import create_fake_embedding
+from app.services.embedding_service import create_embedding
 
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -34,7 +34,7 @@ def search_knowledge_base(
             detail="Query cannot be empty",
         )
 
-    query_embedding = create_fake_embedding(query_text)
+    query_embedding = create_embedding(query_text)
 
     distance = DocumentChunk.embedding.cosine_distance(query_embedding).label(
         "distance"
