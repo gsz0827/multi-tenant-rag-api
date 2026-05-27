@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     ALIYUN_EMBEDDING_MODEL: str = "text-embedding-v4"
     ALIYUN_EMBEDDING_DIMENSION: int = 1536
 
+    LLM_PROVIDER: str = "aliyun"
+    ALIYUN_CHAT_MODEL: str = "qwen-plus"
+
     model_config = SettingsConfigDict(env_file=ENV_FILE)
 
 
