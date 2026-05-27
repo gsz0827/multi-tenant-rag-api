@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_accessible_knowledge_base
@@ -162,6 +163,7 @@ def ask_knowledge_base(
 @router.get("/history", response_model=RagHistoryListResponse)
 def list_rag_history(
     knowledge_base_id: int,
+    keyword: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -178,6 +180,18 @@ def list_rag_history(
         .filter(RagQaRecord.knowledge_base_id == knowledge_base_id)
         .filter(RagQaRecord.user_id == current_user.id)
     )
+
+    clean_keyword = keyword.strip() if keyword else None
+
+    if clean_keyword:
+        keyword_like = f"%{clean_keyword}%"
+
+        query = query.filter(
+            or_(
+                RagQaRecord.question.ilike(keyword_like),
+                RagQaRecord.answer.ilike(keyword_like),
+            )
+        )
 
     total = query.count()
 
