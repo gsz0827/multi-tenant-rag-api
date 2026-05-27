@@ -3,9 +3,25 @@ from openai import OpenAI
 from app.core.config import settings
 
 
+def get_language_instruction(answer_language: str) -> str:
+    language = answer_language.lower().strip()
+
+    if language == "zh":
+        return "Answer in Chinese."
+
+    if language == "en":
+        return "Answer in English."
+
+    if language == "auto":
+        return "Answer in the same language as the user's question."
+
+    return "Answer in the same language as the user's question."
+
+
 def generate_answer_with_context(
     question: str,
     context: str,
+    answer_language: str = "auto",
 ) -> str:
     if settings.LLM_PROVIDER.lower().strip() != "aliyun":
         raise ValueError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
@@ -18,24 +34,28 @@ def generate_answer_with_context(
         base_url=settings.ALIYUN_BASE_URL,
     )
 
-    system_prompt = """
-    You are a helpful knowledge base assistant.
+    language_instruction = get_language_instruction(answer_language)
 
-    Answer the user's question using only the provided context.
-    If the answer cannot be found in the context, say you don't know based on the provided documents.
-    Do not invent facts.
+    system_prompt = f"""
+You are a helpful knowledge base assistant.
 
-    Use citation markers like [1], [2], [3] to show which source chunks support your answer.
-    Only cite source numbers that appear in the provided context.
-    """.strip()
+Answer the user's question using only the provided context.
+If the answer cannot be found in the context, say you don't know based on the provided documents.
+Do not invent facts.
+
+Use citation markers like [1], [2], [3] to show which source chunks support your answer.
+Only cite source numbers that appear in the provided context.
+
+{language_instruction}
+""".strip()
 
     user_prompt = f"""
-    Question:
-    {question}
+Question:
+{question}
 
-    Context:
-    {context}
-    """.strip()
+Context:
+{context}
+""".strip()
 
     response = client.chat.completions.create(
         model=settings.ALIYUN_CHAT_MODEL,

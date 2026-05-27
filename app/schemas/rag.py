@@ -7,6 +7,7 @@ class RagAskRequest(BaseModel):
     knowledge_base_id: int
     question: str
     top_k: int = 5
+    answer_language: str = "auto"
 
 
 class RagSourceChunk(BaseModel):

@@ -21,6 +21,23 @@ from app.core.config import settings
 router = APIRouter(prefix="/rag", tags=["rag"])
 
 
+def build_no_relevant_sources_answer(answer_language: str) -> str:
+    language = answer_language.lower().strip()
+
+    if language == "zh":
+        return "根据已提供的文档，我不知道答案。没有找到与这个问题足够相关的来源片段。"
+
+    if language == "en":
+        return (
+            "I don't know based on the provided documents. "
+            "I could not find sufficiently relevant source chunks for this question."
+        )
+
+    return (
+        "I don't know based on the provided documents. "
+        "I could not find sufficiently relevant source chunks for this question."
+    )
+
 @router.post("/ask", response_model=RagAskResponse)
 def ask_knowledge_base(
     request: RagAskRequest,
@@ -33,6 +50,14 @@ def ask_knowledge_base(
         knowledge_base_id=request.knowledge_base_id,
     )
 
+    answer_language = request.answer_language.lower().strip()
+
+    if answer_language not in {"auto", "zh", "en"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="answer_language must be one of: auto, zh, en",
+        )
+        
     query_embedding = create_embedding(request.question)
 
     rows = (
@@ -86,10 +111,7 @@ def ask_knowledge_base(
     best_score = sources[0].score if sources else 0.0
 
     if best_score < settings.RAG_MIN_SCORE:
-        answer = (
-            "I don't know based on the provided documents. "
-            "I could not find sufficiently relevant source chunks for this question."
-        )
+        answer = build_no_relevant_sources_answer(answer_language)
 
         record = RagQaRecord(
             knowledge_base_id=request.knowledge_base_id,
@@ -114,6 +136,7 @@ def ask_knowledge_base(
     answer = generate_answer_with_context(
         question=request.question,
         context=context,
+        answer_language=answer_language,
     )
 
     record = RagQaRecord(
