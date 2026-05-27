@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from datetime import date, datetime, time
 
 from app.api.deps import get_accessible_knowledge_base
 from app.api.users import get_current_user
@@ -164,6 +165,8 @@ def ask_knowledge_base(
 def list_rag_history(
     knowledge_base_id: int,
     keyword: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -192,6 +195,20 @@ def list_rag_history(
                 RagQaRecord.answer.ilike(keyword_like),
             )
         )
+
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date must be earlier than or equal to end_date",
+        )
+
+    if start_date:
+        start_datetime = datetime.combine(start_date, time.min)
+        query = query.filter(RagQaRecord.created_at >= start_datetime)
+
+    if end_date:
+        end_datetime = datetime.combine(end_date, time.max)
+        query = query.filter(RagQaRecord.created_at <= end_datetime)    
 
     total = query.count()
 
