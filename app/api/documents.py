@@ -35,6 +35,26 @@ ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
+def is_document_ready_for_rag(
+    document: Document,
+    db: Session,
+) -> bool:
+    if document.status != "completed":
+        return False
+
+    if not document.extracted_text:
+        return False
+
+    embedded_chunk_count = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .filter(DocumentChunk.embedding.isnot(None))
+        .count()
+    )
+
+    return embedded_chunk_count > 0
+
+    
 def prepare_single_document(
     document: Document,
     db: Session,
@@ -433,6 +453,7 @@ def prepare_document_for_rag(
 @router.post("/prepare-batch", response_model=DocumentPrepareBatchResult)
 def prepare_documents_batch(
     knowledge_base_id: int = Query(...),
+    force: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -453,8 +474,22 @@ def prepare_documents_batch(
     results: list[DocumentPrepareItemResult] = []
     success_count = 0
     failed_count = 0
+    skipped_count = 0
 
     for document in documents:
+        if not force and is_document_ready_for_rag(document=document, db=db):
+            results.append(
+                DocumentPrepareItemResult(
+                    document_id=document.id,
+                    filename=document.filename,
+                    status="skipped",
+                    message="Document is already prepared for RAG",
+                )
+            )
+
+            skipped_count += 1
+            continue
+
         try:
             result = prepare_single_document(document=document, db=db)
 
@@ -493,10 +528,11 @@ def prepare_documents_batch(
         total_count=len(results),
         success_count=success_count,
         failed_count=failed_count,
+        skipped_count=skipped_count,
         results=results,
     )
 
-    
+
 @router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
 def list_document_chunks(
     document_id: int,

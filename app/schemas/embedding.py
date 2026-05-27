@@ -30,4 +30,5 @@ class DocumentPrepareBatchResult(BaseModel):
     total_count: int
     success_count: int
     failed_count: int
+    skipped_count: int
     results: list[DocumentPrepareItemResult]
