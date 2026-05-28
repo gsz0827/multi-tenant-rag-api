@@ -91,6 +91,64 @@ def generate_markdown(record: RagQaRecord) -> str:
     return "\n".join(lines)
 
 
+def generate_txt(record: RagQaRecord) -> str:
+    lines = [
+        "RAG 问答导出",
+        "=" * 40,
+        "",
+        "问题",
+        "-" * 40,
+        record.question or "",
+        "",
+        "回答",
+        "-" * 40,
+        record.answer or "",
+        "",
+        "引用来源",
+        "-" * 40,
+    ]
+
+    sources = record.sources or []
+
+    if not sources:
+        lines.append("无引用来源。")
+        lines.append("")
+    else:
+        for index, source in enumerate(sources, start=1):
+            filename = source.get("filename", "")
+            document_id = source.get("document_id", "")
+            chunk_id = source.get("chunk_id", "")
+            chunk_index = source.get("chunk_index", "")
+            score = source.get("score", "")
+            content = source.get("content", "")
+
+            lines.extend(
+                [
+                    f"[{index}] {filename}",
+                    f"document_id: {document_id}",
+                    f"chunk_id: {chunk_id}",
+                    f"chunk_index: {chunk_index}",
+                    f"score: {score}",
+                    "",
+                    content,
+                    "",
+                    "-" * 40,
+                    "",
+                ]
+            )
+
+    lines.extend(
+        [
+            "创建时间",
+            "-" * 40,
+            str(record.created_at),
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 def generate_pdf_bytes(record: RagQaRecord) -> BytesIO:
     buffer = BytesIO()
 
@@ -520,7 +578,7 @@ def delete_rag_history(
 @router.get("/history/{history_id}/export")
 def export_rag_history(
     history_id: int,
-    format: str = Query("pdf", pattern="^(pdf|markdown)$"),
+    format: str = Query("pdf", pattern="^(pdf|markdown|txt)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -553,6 +611,16 @@ def export_rag_history(
             media_type="text/markdown; charset=utf-8",
             headers={
                 "Content-Disposition": f"attachment; filename={safe_filename_base}.md"
+            },
+        )
+
+    if export_format == "txt":
+        content = generate_txt(record)
+        return StreamingResponse(
+            BytesIO(content.encode("utf-8")),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={safe_filename_base}.txt"
             },
         )
 
