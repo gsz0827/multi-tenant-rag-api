@@ -149,6 +149,144 @@ def generate_txt(record: RagQaRecord) -> str:
     return "\n".join(lines)
 
 
+def generate_batch_markdown(records: list[RagQaRecord]) -> str:
+    lines = [
+        "# RAG 历史批量导出",
+        "",
+        f"记录数量：{len(records)}",
+        "",
+        "---",
+        "",
+    ]
+
+    for item_index, record in enumerate(records, start=1):
+        lines.extend(
+            [
+                f"# {item_index}. 问答记录 #{record.id}",
+                "",
+                "## 问题",
+                "",
+                record.question or "",
+                "",
+                "## 回答",
+                "",
+                record.answer or "",
+                "",
+                "## 引用来源",
+                "",
+            ]
+        )
+
+        sources = record.sources or []
+
+        if not sources:
+            lines.append("无引用来源。")
+            lines.append("")
+        else:
+            for source_index, source in enumerate(sources, start=1):
+                filename = source.get("filename", "")
+                document_id = source.get("document_id", "")
+                chunk_id = source.get("chunk_id", "")
+                chunk_index = source.get("chunk_index", "")
+                score = source.get("score", "")
+
+                lines.extend(
+                    [
+                        f"### [{source_index}] {filename}",
+                        "",
+                        f"- document_id: {document_id}",
+                        f"- chunk_id: {chunk_id}",
+                        f"- chunk_index: {chunk_index}",
+                        f"- score: {score}",
+                        "",
+                        "```text",
+                        source.get("content", ""),
+                        "```",
+                        "",
+                    ]
+                )
+
+        lines.extend(
+            [
+                f"创建时间：{record.created_at}",
+                "",
+                "---",
+                "",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
+def generate_batch_txt(records: list[RagQaRecord]) -> str:
+    lines = [
+        "RAG 历史批量导出",
+        "=" * 60,
+        f"记录数量：{len(records)}",
+        "",
+    ]
+
+    for item_index, record in enumerate(records, start=1):
+        lines.extend(
+            [
+                "=" * 60,
+                f"{item_index}. 问答记录 #{record.id}",
+                "=" * 60,
+                "",
+                "问题",
+                "-" * 40,
+                record.question or "",
+                "",
+                "回答",
+                "-" * 40,
+                record.answer or "",
+                "",
+                "引用来源",
+                "-" * 40,
+            ]
+        )
+
+        sources = record.sources or []
+
+        if not sources:
+            lines.append("无引用来源。")
+            lines.append("")
+        else:
+            for source_index, source in enumerate(sources, start=1):
+                filename = source.get("filename", "")
+                document_id = source.get("document_id", "")
+                chunk_id = source.get("chunk_id", "")
+                chunk_index = source.get("chunk_index", "")
+                score = source.get("score", "")
+                content = source.get("content", "")
+
+                lines.extend(
+                    [
+                        f"[{source_index}] {filename}",
+                        f"document_id: {document_id}",
+                        f"chunk_id: {chunk_id}",
+                        f"chunk_index: {chunk_index}",
+                        f"score: {score}",
+                        "",
+                        content,
+                        "",
+                        "-" * 40,
+                        "",
+                    ]
+                )
+
+        lines.extend(
+            [
+                "创建时间",
+                "-" * 40,
+                str(record.created_at),
+                "",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
 def generate_pdf_bytes(record: RagQaRecord) -> BytesIO:
     buffer = BytesIO()
 
@@ -476,6 +614,62 @@ def list_rag_history(
         items=records,
     )
     
+
+@router.get("/history/export-batch")
+def export_rag_history_batch(
+    knowledge_base_id: int,
+    format: str = Query("markdown", pattern="^(markdown|txt)$"),
+    keyword: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    query = build_rag_history_query(
+        db=db,
+        user_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    records = (
+        query
+        .order_by(RagQaRecord.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    export_format = format.lower().strip()
+    safe_filename_base = f"rag_history_batch_kb_{knowledge_base_id}"
+
+    if export_format == "txt":
+        content = generate_batch_txt(records)
+        return StreamingResponse(
+            BytesIO(content.encode("utf-8")),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={safe_filename_base}.txt"
+            },
+        )
+
+    content = generate_batch_markdown(records)
+    return StreamingResponse(
+        BytesIO(content.encode("utf-8")),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename={safe_filename_base}.md"
+        },
+    )
+
 
 @router.delete("/history", response_model=RagHistoryDeleteResponse)
 def delete_rag_history_batch(
