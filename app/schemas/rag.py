@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 
 class RagAskRequest(BaseModel):
@@ -51,3 +51,13 @@ class RagHistoryDeleteResponse(BaseModel):
     knowledge_base_id: int
     deleted_count: int
     message: str    
+
+
+class RagExportRequest(BaseModel):
+    format: str = "pdf"
+
+    @validator("format")
+    def validate_format(cls, v):
+        if v.lower() not in {"pdf", "markdown"}:
+            raise ValueError("format must be 'pdf' or 'markdown'")
+        return v.lower()

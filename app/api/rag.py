@@ -21,8 +21,58 @@ from app.schemas.rag import (
     RagSourceChunk,
 )
 from app.core.config import settings
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 router = APIRouter(prefix="/rag", tags=["rag"])
+
+
+def generate_markdown(record: RagQaRecord) -> str:
+    lines = [
+        f"# Question\n{record.question}\n",
+        f"# Answer\n{record.answer}\n",
+        "# Sources\n"
+    ]
+    for i, source in enumerate(record.sources, start=1):
+        lines.append(f"## [{i}] {source.get('filename', '')}\n")
+        lines.append(f"{source.get('content','')}\n")
+    lines.append(f"\n*Created at: {record.created_at}*")
+    return "\n".join(lines)
+
+
+def generate_pdf_bytes(record: RagQaRecord) -> BytesIO:
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    y = height - 40
+
+    def draw_text(text, font_size=12):
+        nonlocal y
+        c.setFont("Helvetica", font_size)
+        for line in text.split("\n"):
+            if y < 40:
+                c.showPage()
+                y = height - 40
+            c.drawString(40, y, line)
+            y -= font_size + 2
+
+    draw_text(f"Question:\n{record.question}", 12)
+    y -= 10
+    draw_text(f"Answer:\n{record.answer}", 12)
+    y -= 10
+    draw_text("Sources:", 12)
+    for i, source in enumerate(record.sources, start=1):
+        y -= 5
+        draw_text(f"[{i}] {source.get('filename', '')}", 12)
+        draw_text(source.get("content", ""), 10)
+        y -= 5
+    draw_text(f"Created at: {record.created_at}", 10)
+
+    c.save()
+    buffer.seek(0)
+    return buffer
 
 
 def build_rag_history_query(
@@ -249,7 +299,7 @@ def list_rag_history(
         items=records,
     )
     
-    
+
 @router.delete("/history", response_model=RagHistoryDeleteResponse)
 def delete_rag_history_batch(
     knowledge_base_id: int,
@@ -346,3 +396,42 @@ def delete_rag_history(
         "message": "RAG history record deleted successfully",
         "history_id": history_id,
     }
+
+
+@router.get("/history/{history_id}/export")
+def export_rag_history(
+    history_id: int,
+    format: str = Query("pdf", regex="^(pdf|markdown)$"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    record = (
+        db.query(RagQaRecord)
+        .filter(RagQaRecord.id == history_id)
+        .filter(RagQaRecord.user_id == current_user.id)
+        .first()
+    )
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="RAG history record not found")
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=record.knowledge_base_id,
+    )
+
+    if format.lower() == "markdown":
+        content = generate_markdown(record)
+        return StreamingResponse(
+            BytesIO(content.encode("utf-8")),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename=rag_{history_id}.md"},
+        )
+    else:
+        buffer = generate_pdf_bytes(record)
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=rag_{history_id}.pdf"},
+        )
