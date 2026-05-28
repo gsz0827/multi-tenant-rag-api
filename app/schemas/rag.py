@@ -45,3 +45,9 @@ class RagHistoryListResponse(BaseModel):
     skip: int
     limit: int
     items: list[RagHistoryItem]
+
+
+class RagHistoryDeleteResponse(BaseModel):
+    knowledge_base_id: int
+    deleted_count: int
+    message: str    

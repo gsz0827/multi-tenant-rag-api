@@ -15,6 +15,7 @@ from app.models.rag_qa_record import RagQaRecord
 from app.schemas.rag import (
     RagAskRequest,
     RagAskResponse,
+    RagHistoryDeleteResponse,
     RagHistoryItem,
     RagHistoryListResponse,
     RagSourceChunk,
@@ -22,6 +23,49 @@ from app.schemas.rag import (
 from app.core.config import settings
 
 router = APIRouter(prefix="/rag", tags=["rag"])
+
+
+def build_rag_history_query(
+    db: Session,
+    user_id: int,
+    knowledge_base_id: int,
+    keyword: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    query = (
+        db.query(RagQaRecord)
+        .filter(RagQaRecord.knowledge_base_id == knowledge_base_id)
+        .filter(RagQaRecord.user_id == user_id)
+    )
+
+    clean_keyword = keyword.strip() if keyword else None
+
+    if clean_keyword:
+        keyword_like = f"%{clean_keyword}%"
+
+        query = query.filter(
+            or_(
+                RagQaRecord.question.ilike(keyword_like),
+                RagQaRecord.answer.ilike(keyword_like),
+            )
+        )
+
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date must be earlier than or equal to end_date",
+        )
+
+    if start_date:
+        start_datetime = datetime.combine(start_date, time.min)
+        query = query.filter(RagQaRecord.created_at >= start_datetime)
+
+    if end_date:
+        end_datetime = datetime.combine(end_date, time.max)
+        query = query.filter(RagQaRecord.created_at <= end_datetime)
+
+    return query
 
 
 def build_no_relevant_sources_answer(answer_language: str) -> str:
@@ -178,37 +222,14 @@ def list_rag_history(
         knowledge_base_id=knowledge_base_id,
     )
 
-    query = (
-        db.query(RagQaRecord)
-        .filter(RagQaRecord.knowledge_base_id == knowledge_base_id)
-        .filter(RagQaRecord.user_id == current_user.id)
+    query = build_rag_history_query(
+        db=db,
+        user_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
     )
-
-    clean_keyword = keyword.strip() if keyword else None
-
-    if clean_keyword:
-        keyword_like = f"%{clean_keyword}%"
-
-        query = query.filter(
-            or_(
-                RagQaRecord.question.ilike(keyword_like),
-                RagQaRecord.answer.ilike(keyword_like),
-            )
-        )
-
-    if start_date and end_date and start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date must be earlier than or equal to end_date",
-        )
-
-    if start_date:
-        start_datetime = datetime.combine(start_date, time.min)
-        query = query.filter(RagQaRecord.created_at >= start_datetime)
-
-    if end_date:
-        end_datetime = datetime.combine(end_date, time.max)
-        query = query.filter(RagQaRecord.created_at <= end_datetime)    
 
     total = query.count()
 
@@ -228,6 +249,42 @@ def list_rag_history(
         items=records,
     )
     
+    
+@router.delete("/history", response_model=RagHistoryDeleteResponse)
+def delete_rag_history_batch(
+    knowledge_base_id: int,
+    keyword: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    query = build_rag_history_query(
+        db=db,
+        user_id=current_user.id,
+        knowledge_base_id=knowledge_base_id,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    deleted_count = query.count()
+
+    query.delete(synchronize_session=False)
+    db.commit()
+
+    return RagHistoryDeleteResponse(
+        knowledge_base_id=knowledge_base_id,
+        deleted_count=deleted_count,
+        message="RAG history records deleted successfully",
+    )
+
 
 @router.get("/history/{history_id}", response_model=RagHistoryItem)
 def get_rag_history_detail(
