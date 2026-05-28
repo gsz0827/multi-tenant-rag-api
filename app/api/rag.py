@@ -23,54 +23,173 @@ from app.schemas.rag import (
 from app.core.config import settings
 from fastapi.responses import StreamingResponse
 from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from xml.sax.saxutils import escape
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
 
 def generate_markdown(record: RagQaRecord) -> str:
     lines = [
-        f"# Question\n{record.question}\n",
-        f"# Answer\n{record.answer}\n",
-        "# Sources\n"
+        "# RAG 问答导出",
+        "",
+        "## 问题",
+        "",
+        record.question or "",
+        "",
+        "## 回答",
+        "",
+        record.answer or "",
+        "",
+        "## 引用来源",
+        "",
     ]
-    for i, source in enumerate(record.sources, start=1):
-        lines.append(f"## [{i}] {source.get('filename', '')}\n")
-        lines.append(f"{source.get('content','')}\n")
-    lines.append(f"\n*Created at: {record.created_at}*")
+
+    sources = record.sources or []
+
+    if not sources:
+        lines.append("无引用来源。")
+        lines.append("")
+    else:
+        for index, source in enumerate(sources, start=1):
+            filename = source.get("filename", "")
+            document_id = source.get("document_id", "")
+            chunk_id = source.get("chunk_id", "")
+            chunk_index = source.get("chunk_index", "")
+            score = source.get("score", "")
+
+            lines.extend(
+                [
+                    f"### [{index}] {filename}",
+                    "",
+                    f"- document_id: {document_id}",
+                    f"- chunk_id: {chunk_id}",
+                    f"- chunk_index: {chunk_index}",
+                    f"- score: {score}",
+                    "",
+                    "```text",
+                    source.get("content", ""),
+                    "```",
+                    "",
+                ]
+            )
+
+    lines.extend(
+        [
+            "---",
+            "",
+            f"创建时间：{record.created_at}",
+            "",
+        ]
+    )
+
     return "\n".join(lines)
 
 
 def generate_pdf_bytes(record: RagQaRecord) -> BytesIO:
     buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    y = height - 40
 
-    def draw_text(text, font_size=12):
-        nonlocal y
-        c.setFont("Helvetica", font_size)
-        for line in text.split("\n"):
-            if y < 40:
-                c.showPage()
-                y = height - 40
-            c.drawString(40, y, line)
-            y -= font_size + 2
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
-    draw_text(f"Question:\n{record.question}", 12)
-    y -= 10
-    draw_text(f"Answer:\n{record.answer}", 12)
-    y -= 10
-    draw_text("Sources:", 12)
-    for i, source in enumerate(record.sources, start=1):
-        y -= 5
-        draw_text(f"[{i}] {source.get('filename', '')}", 12)
-        draw_text(source.get("content", ""), 10)
-        y -= 5
-    draw_text(f"Created at: {record.created_at}", 10)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.7 * inch,
+        leftMargin=0.7 * inch,
+        topMargin=0.7 * inch,
+        bottomMargin=0.7 * inch,
+    )
 
-    c.save()
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        name="ChineseTitle",
+        parent=styles["Title"],
+        fontName="STSong-Light",
+        fontSize=18,
+        leading=24,
+        spaceAfter=16,
+    )
+
+    heading_style = ParagraphStyle(
+        name="ChineseHeading",
+        parent=styles["Heading2"],
+        fontName="STSong-Light",
+        fontSize=14,
+        leading=20,
+        spaceBefore=12,
+        spaceAfter=8,
+    )
+
+    body_style = ParagraphStyle(
+        name="ChineseBody",
+        parent=styles["BodyText"],
+        fontName="STSong-Light",
+        fontSize=10,
+        leading=16,
+        spaceAfter=8,
+    )
+
+    source_style = ParagraphStyle(
+        name="ChineseSource",
+        parent=styles["BodyText"],
+        fontName="STSong-Light",
+        fontSize=9,
+        leading=14,
+        leftIndent=12,
+        spaceAfter=8,
+    )
+
+    story = []
+
+    story.append(Paragraph("RAG 问答导出", title_style))
+
+    story.append(Paragraph("问题", heading_style))
+    story.append(Paragraph(escape(record.question or ""), body_style))
+
+    story.append(Paragraph("回答", heading_style))
+    story.append(Paragraph(escape(record.answer or "").replace("\n", "<br/>"), body_style))
+
+    story.append(Paragraph("引用来源", heading_style))
+
+    sources = record.sources or []
+
+    if not sources:
+        story.append(Paragraph("无引用来源。", body_style))
+    else:
+        for index, source in enumerate(sources, start=1):
+            filename = source.get("filename", "")
+            chunk_id = source.get("chunk_id", "")
+            chunk_index = source.get("chunk_index", "")
+            score = source.get("score", "")
+
+            source_title = (
+                f"[{index}] 文件：{filename} | "
+                f"chunk_id={chunk_id} | chunk_index={chunk_index} | score={score}"
+            )
+
+            story.append(Paragraph(escape(source_title), source_style))
+
+            content = source.get("content", "")
+            story.append(
+                Paragraph(
+                    escape(content).replace("\n", "<br/>"),
+                    source_style,
+                )
+            )
+
+            story.append(Spacer(1, 8))
+
+    story.append(Spacer(1, 16))
+    story.append(Paragraph(f"创建时间：{record.created_at}", body_style))
+
+    doc.build(story)
+
     buffer.seek(0)
     return buffer
 
@@ -401,7 +520,7 @@ def delete_rag_history(
 @router.get("/history/{history_id}/export")
 def export_rag_history(
     history_id: int,
-    format: str = Query("pdf", regex="^(pdf|markdown)$"),
+    format: str = Query("pdf", pattern="^(pdf|markdown)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -413,7 +532,10 @@ def export_rag_history(
     )
 
     if record is None:
-        raise HTTPException(status_code=404, detail="RAG history record not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="RAG history record not found",
+        )
 
     get_accessible_knowledge_base(
         db=db,
@@ -421,17 +543,25 @@ def export_rag_history(
         knowledge_base_id=record.knowledge_base_id,
     )
 
-    if format.lower() == "markdown":
+    export_format = format.lower().strip()
+    safe_filename_base = f"rag_history_{history_id}"
+
+    if export_format == "markdown":
         content = generate_markdown(record)
         return StreamingResponse(
             BytesIO(content.encode("utf-8")),
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename=rag_{history_id}.md"},
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={safe_filename_base}.md"
+            },
         )
-    else:
-        buffer = generate_pdf_bytes(record)
-        return StreamingResponse(
-            buffer,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=rag_{history_id}.pdf"},
-        )
+
+    buffer = generate_pdf_bytes(record)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename={safe_filename_base}.pdf"
+        },
+    )
