@@ -25,7 +25,10 @@ from app.schemas.embedding import (
     DocumentPrepareResult,
 )
 from app.services.embedding_service import create_embedding
-from app.services.document_ingestion import prepare_document_for_rag_sync
+from app.services.document_ingestion import (
+    is_document_ready_for_rag,
+    prepare_document_for_rag_sync,
+)
 from app.worker.celery_app import celery_app
 from app.worker.tasks import prepare_document_task
 
@@ -537,6 +540,82 @@ def prepare_documents_batch(
         skipped_count=skipped_count,
         results=results,
     )
+
+
+@router.post("/prepare-batch-async")
+def prepare_documents_batch_async(
+    knowledge_base_id: int = Query(...),
+    force: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    documents = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == knowledge_base_id)
+        .filter(Document.storage_path.isnot(None))
+        .order_by(Document.created_at.asc())
+        .all()
+    )
+
+    results = []
+    queued_count = 0
+    skipped_count = 0
+
+    for document in documents:
+        if not force and is_document_ready_for_rag(document=document, db=db):
+            skipped_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "status": "skipped",
+                    "task_id": document.task_id,
+                    "message": "Document is already prepared for RAG",
+                }
+            )
+
+            continue
+
+        task = prepare_document_task.apply_async(
+            kwargs={
+                "document_id": document.id,
+                "force": force,
+            },
+            queue="ingestion",
+        )
+
+        document.status = "queued"
+        document.task_id = task.id
+        document.error_message = None
+
+        queued_count += 1
+
+        results.append(
+            {
+                "document_id": document.id,
+                "filename": document.filename,
+                "status": "queued",
+                "task_id": task.id,
+                "message": "Document preparation task queued",
+            }
+        )
+
+    db.commit()
+
+    return {
+        "knowledge_base_id": knowledge_base_id,
+        "total_count": len(results),
+        "queued_count": queued_count,
+        "skipped_count": skipped_count,
+        "results": results,
+    }
 
 
 @router.get("/{document_id}/chunks", response_model=list[DocumentChunkRead])
