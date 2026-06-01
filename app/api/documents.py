@@ -570,40 +570,36 @@ def prepare_documents_batch(
     skipped_count = 0
 
     for document in documents:
-        if not force and is_document_ready_for_rag(document=document, db=db):
-            results.append(
-                DocumentPrepareItemResult(
-                    document_id=document.id,
-                    filename=document.filename,
-                    status="skipped",
-                    message="Document is already prepared for RAG",
-                )
-            )
-
-            skipped_count += 1
-            continue
-
         try:
-            result = prepare_single_document(document=document, db=db)
+            result = prepare_document_for_rag_sync(
+                db=db,
+                document_id=document.id,
+                force=force,
+            )
+
+            item_status = result["status"]
+            item_message = result["message"]
+
+            if item_message == "Document is already prepared for RAG":
+                skipped_count += 1
+                item_status = "skipped"
+            else:
+                success_count += 1
 
             results.append(
                 DocumentPrepareItemResult(
                     document_id=document.id,
                     filename=document.filename,
-                    status=result.status,
-                    text_length=result.text_length,
-                    chunk_count=result.chunk_count,
-                    embedded_chunk_count=result.embedded_chunk_count,
-                    message=result.message,
+                    status=item_status,
+                    text_length=result.get("text_length"),
+                    chunk_count=result.get("chunk_count"),
+                    embedded_chunk_count=result.get("embedded_chunk_count"),
+                    message=item_message,
                 )
             )
-
-            success_count += 1
 
         except Exception as exc:
-            document.status = "failed"
-            document.error_message = str(exc)
-            db.commit()
+            failed_count += 1
 
             results.append(
                 DocumentPrepareItemResult(
@@ -613,8 +609,6 @@ def prepare_documents_batch(
                     message=str(exc),
                 )
             )
-
-            failed_count += 1
 
     return DocumentPrepareBatchResult(
         knowledge_base_id=knowledge_base_id,
