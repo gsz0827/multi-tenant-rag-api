@@ -14,6 +14,16 @@ def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
         if document is None:
             raise ValueError("Document not found")
 
+        if document.status == "cancelled":
+            return {
+                "document_id": document.id,
+                "status": document.status,
+                "text_length": len(document.extracted_text or ""),
+                "chunk_count": 0,
+                "embedded_chunk_count": 0,
+                "message": "Document ingestion task was cancelled",
+            }
+
         document.status = "processing"
         document.error_message = None
         db.commit()
@@ -31,7 +41,7 @@ def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
 
         document = db.query(Document).filter(Document.id == document_id).first()
 
-        if document is not None:
+        if document is not None and document.status != "cancelled":
             document.status = "failed"
             document.error_message = str(exc)
             db.commit()
