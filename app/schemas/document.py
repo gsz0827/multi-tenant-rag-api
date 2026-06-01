@@ -83,3 +83,11 @@ class DocumentIngestionStatusBatchResult(BaseModel):
     processing_count: int
     pending_count: int
     results: list[DocumentIngestionStatusBatchItem]
+
+
+class DocumentCancelIngestionResult(BaseModel):
+    document_id: int
+    task_id: str | None = None
+    status: str
+    celery_status: str | None = None
+    message: str

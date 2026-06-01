@@ -14,6 +14,7 @@ from app.models.document import Document
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.document import (
+    DocumentCancelIngestionResult,
     DocumentCreate,
     DocumentIngestionStatusBatchResult,
     DocumentIngestionStatusResult,
@@ -479,6 +480,112 @@ def get_document_ingestion_status(
         "error_message": document.error_message,
         "result": celery_result,
     }
+
+
+@router.post("/{document_id}/cancel-ingestion", response_model=DocumentCancelIngestionResult)
+def cancel_document_ingestion(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if not document.task_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document does not have an ingestion task",
+        )
+
+    task_result = AsyncResult(document.task_id, app=celery_app)
+    celery_status = task_result.status
+
+    if document.status not in ["queued", "processing"]:
+        return DocumentCancelIngestionResult(
+            document_id=document.id,
+            task_id=document.task_id,
+            status=document.status,
+            celery_status=celery_status,
+            message="Document ingestion task is not running",
+        )
+
+    celery_app.control.revoke(document.task_id, terminate=False)
+
+    document.status = "cancelled"
+    document.error_message = "Document ingestion task was cancelled by user"
+    db.commit()
+    db.refresh(document)
+
+    return DocumentCancelIngestionResult(
+        document_id=document.id,
+        task_id=document.task_id,
+        status=document.status,
+        celery_status=celery_status,
+        message="Document ingestion task cancellation requested",
+    )
+
+
+@router.post("/{document_id}/retry-ingestion", response_model=DocumentPrepareAsyncResult)
+def retry_document_ingestion(
+    document_id: int,
+    force: bool = Query(True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    if document.status in ["queued", "processing"] and document.task_id:
+        return DocumentPrepareAsyncResult(
+            document_id=document.id,
+            task_id=document.task_id,
+            status=document.status,
+            message="Document preparation task is already running",
+        )
+
+    task = prepare_document_task.apply_async(
+        kwargs={
+            "document_id": document.id,
+            "force": force,
+        },
+        queue="ingestion",
+    )
+
+    document.status = "queued"
+    document.task_id = task.id
+    document.error_message = None
+
+    db.commit()
+    db.refresh(document)
+
+    return DocumentPrepareAsyncResult(
+        document_id=document.id,
+        task_id=task.id,
+        status=document.status,
+        message="Document ingestion retry task queued",
+    )
 
 
 @router.get("/ingestion-status-batch", response_model=DocumentIngestionStatusBatchResult)
