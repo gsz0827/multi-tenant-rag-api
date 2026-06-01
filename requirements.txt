@@ -16,3 +16,9 @@ pypdf
 python-docx
 pgvector
 openai
+
+reportlab
+celery[redis]
+redis
+pytest
+httpx
