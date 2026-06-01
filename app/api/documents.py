@@ -25,6 +25,7 @@ from app.schemas.embedding import (
     DocumentPrepareResult,
 )
 from app.services.embedding_service import create_embedding
+from app.services.document_ingestion import prepare_document_for_rag_sync
 from app.worker.celery_app import celery_app
 from app.worker.tasks import prepare_document_task
 
@@ -439,37 +440,16 @@ def prepare_document_for_rag(
         knowledge_base_id=document.knowledge_base_id,
     )
 
-    if not force and is_document_ready_for_rag(document=document, db=db):
-        embedded_chunk_count = (
-            db.query(DocumentChunk)
-            .filter(DocumentChunk.document_id == document.id)
-            .filter(DocumentChunk.embedding.isnot(None))
-            .count()
-        )
-
-        total_chunk_count = (
-            db.query(DocumentChunk)
-            .filter(DocumentChunk.document_id == document.id)
-            .count()
-        )
-
-        return DocumentPrepareResult(
-            document_id=document.id,
-            status=document.status,
-            text_length=len(document.extracted_text or ""),
-            chunk_count=total_chunk_count,
-            embedded_chunk_count=embedded_chunk_count,
-            message="Document is already prepared for RAG",
-        )
-
     try:
-        return prepare_single_document(document=document, db=db)
+        result = prepare_document_for_rag_sync(
+            db=db,
+            document_id=document.id,
+            force=force,
+        )
+
+        return DocumentPrepareResult(**result)
 
     except Exception as exc:
-        document.status = "failed"
-        document.error_message = str(exc)
-        db.commit()
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to prepare document for RAG: {exc}",
