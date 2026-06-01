@@ -399,6 +399,14 @@ def prepare_document_for_rag_async(
         knowledge_base_id=document.knowledge_base_id,
     )
 
+    if not force and document.status in ["queued", "processing"] and document.task_id:
+        return {
+            "document_id": document.id,
+            "task_id": document.task_id,
+            "status": document.status,
+            "message": "Document preparation task is already running",
+        }
+
     task = prepare_document_task.apply_async(
         kwargs={
             "document_id": document.id,
@@ -583,6 +591,21 @@ def prepare_documents_batch_async(
 
             continue
 
+        if not force and document.status in ["queued", "processing"] and document.task_id:
+            skipped_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "status": document.status,
+                    "task_id": document.task_id,
+                    "message": "Document preparation task is already running",
+                }
+            )
+
+            continue
+            
         task = prepare_document_task.apply_async(
             kwargs={
                 "document_id": document.id,
