@@ -4,6 +4,20 @@ from docx import Document as DocxDocument
 from pypdf import PdfReader
 
 
+def sanitize_extracted_text(text: str) -> str:
+    """
+    Clean extracted document text before saving to PostgreSQL.
+
+    PostgreSQL TEXT fields cannot store NUL characters.
+    Some PDF/DOCX/TXT parsing results may contain '\x00', which causes:
+    A string literal cannot contain NUL (0x00) characters.
+    """
+    if not text:
+        return ""
+
+    return text.replace("\x00", "")
+
+
 def parse_txt_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
@@ -43,16 +57,19 @@ def parse_document_file(path: str, content_type: str | None) -> str:
     suffix = file_path.suffix.lower()
 
     if content_type == "text/plain" or suffix == ".txt":
-        return parse_txt_file(file_path)
+        extracted_text = parse_txt_file(file_path)
 
-    if content_type == "application/pdf" or suffix == ".pdf":
-        return parse_pdf_file(file_path)
+    elif content_type == "application/pdf" or suffix == ".pdf":
+        extracted_text = parse_pdf_file(file_path)
 
-    if (
+    elif (
         content_type
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         or suffix == ".docx"
     ):
-        return parse_docx_file(file_path)
+        extracted_text = parse_docx_file(file_path)
 
-    raise ValueError("Unsupported file type")
+    else:
+        raise ValueError("Unsupported file type")
+
+    return sanitize_extracted_text(extracted_text)
