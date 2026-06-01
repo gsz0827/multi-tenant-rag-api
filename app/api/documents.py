@@ -473,6 +473,74 @@ def get_document_ingestion_status(
     }
 
 
+@router.get("/ingestion-status-batch")
+def get_documents_ingestion_status_batch(
+    knowledge_base_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    documents = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == knowledge_base_id)
+        .order_by(Document.created_at.asc())
+        .all()
+    )
+
+    results = []
+
+    completed_count = 0
+    failed_count = 0
+    queued_count = 0
+    processing_count = 0
+    pending_count = 0
+
+    for document in documents:
+        celery_status = None
+
+        if document.task_id:
+            task_result = AsyncResult(document.task_id, app=celery_app)
+            celery_status = task_result.status
+
+        if document.status == "completed":
+            completed_count += 1
+        elif document.status == "failed":
+            failed_count += 1
+        elif document.status == "queued":
+            queued_count += 1
+        elif document.status == "processing":
+            processing_count += 1
+        elif document.status == "pending":
+            pending_count += 1
+
+        results.append(
+            {
+                "document_id": document.id,
+                "filename": document.filename,
+                "document_status": document.status,
+                "task_id": document.task_id,
+                "celery_status": celery_status,
+                "error_message": document.error_message,
+            }
+        )
+
+    return {
+        "knowledge_base_id": knowledge_base_id,
+        "total_count": len(results),
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "queued_count": queued_count,
+        "processing_count": processing_count,
+        "pending_count": pending_count,
+        "results": results,
+    }
+
+
 @router.post("/prepare-batch", response_model=DocumentPrepareBatchResult)
 def prepare_documents_batch(
     knowledge_base_id: int = Query(...),
@@ -605,7 +673,7 @@ def prepare_documents_batch_async(
             )
 
             continue
-            
+
         task = prepare_document_task.apply_async(
             kwargs={
                 "document_id": document.id,
