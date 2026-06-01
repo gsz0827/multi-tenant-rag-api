@@ -2,7 +2,11 @@ from app.db.session import SessionLocal
 from app.models.document import Document
 from app.services.document_ingestion import prepare_document_for_rag_sync
 from app.worker.celery_app import celery_app
-
+from app.core.document_status import (
+    DOCUMENT_STATUS_CANCELLED,
+    DOCUMENT_STATUS_FAILED,
+    DOCUMENT_STATUS_PROCESSING,
+)
 
 @celery_app.task(bind=True, name="documents.prepare")
 def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
@@ -14,7 +18,7 @@ def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
         if document is None:
             raise ValueError("Document not found")
 
-        if document.status == "cancelled":
+        if document.status == DOCUMENT_STATUS_CANCELLED:
             return {
                 "document_id": document.id,
                 "status": document.status,
@@ -24,7 +28,7 @@ def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
                 "message": "Document ingestion task was cancelled",
             }
 
-        document.status = "processing"
+        document.status = DOCUMENT_STATUS_PROCESSING
         document.error_message = None
         db.commit()
 
@@ -41,8 +45,8 @@ def prepare_document_task(self, document_id: int, force: bool = False) -> dict:
 
         document = db.query(Document).filter(Document.id == document_id).first()
 
-        if document is not None and document.status != "cancelled":
-            document.status = "failed"
+        if document is not None and document.status != DOCUMENT_STATUS_CANCELLED:
+            document.status = DOCUMENT_STATUS_FAILED
             document.error_message = str(exc)
             db.commit()
 

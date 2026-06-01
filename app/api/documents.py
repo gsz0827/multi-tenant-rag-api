@@ -42,6 +42,16 @@ from app.services.document_ingestion import (
 )
 from app.worker.celery_app import celery_app
 from app.worker.tasks import prepare_document_task
+from app.core.document_status import (
+    DOCUMENT_RETRYABLE_STATUSES,
+    DOCUMENT_RUNNING_STATUSES,
+    DOCUMENT_STATUS_CANCELLED,
+    DOCUMENT_STATUS_COMPLETED,
+    DOCUMENT_STATUS_FAILED,
+    DOCUMENT_STATUS_PENDING,
+    DOCUMENT_STATUS_PROCESSING,
+    DOCUMENT_STATUS_QUEUED,
+)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -114,7 +124,7 @@ def upload_document(
         content_type=file.content_type,
         file_size=file_size,
         storage_path=str(storage_path),
-        status="pending",
+        status=DOCUMENT_STATUS_PENDING,
     )
 
     db.add(document)
@@ -141,7 +151,7 @@ def create_document(
         filename=document_in.filename,
         content_type=document_in.content_type,
         file_size=document_in.file_size,
-        status="pending",
+        status=DOCUMENT_STATUS_PENDING,
     )
 
     db.add(document)
@@ -193,7 +203,7 @@ def process_document(
     )
 
     if not document.storage_path:
-        document.status = "failed"
+        document.status = DOCUMENT_STATUS_FAILED
         document.error_message = "Document does not have a stored file"
         db.commit()
 
@@ -202,7 +212,7 @@ def process_document(
             detail="Document does not have a stored file",
         )
 
-    document.status = "processing"
+    document.status = DOCUMENT_STATUS_PROCESSING
     document.error_message = None
     db.commit()
 
@@ -216,7 +226,7 @@ def process_document(
             raise ValueError("No text could be extracted from this document")
 
         document.extracted_text = extracted_text
-        document.status = "completed"
+        document.status = DOCUMENT_STATUS_COMPLETED
         document.error_message = None
 
         db.commit()
@@ -230,7 +240,7 @@ def process_document(
         )
 
     except Exception as exc:
-        document.status = "failed"
+        document.status = DOCUMENT_STATUS_FAILED
         document.error_message = str(exc)
         db.commit()
 
@@ -259,7 +269,7 @@ def chunk_document(
         knowledge_base_id=document.knowledge_base_id,
     )
 
-    if document.status != "completed":
+    if document.status != DOCUMENT_STATUS_COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Document must be processed before chunking",
@@ -318,7 +328,7 @@ def embed_document_chunks(
         knowledge_base_id=document.knowledge_base_id,
     )
 
-    if document.status != "completed":
+    if document.status != DOCUMENT_STATUS_COMPLETED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Document must be processed before embedding",
@@ -410,7 +420,7 @@ def prepare_document_for_rag_async(
         knowledge_base_id=document.knowledge_base_id,
     )
 
-    if not force and document.status in ["queued", "processing"] and document.task_id:
+    if not force and document.status in DOCUMENT_RUNNING_STATUSES and document.task_id:
         return {
             "document_id": document.id,
             "task_id": document.task_id,
@@ -426,7 +436,7 @@ def prepare_document_for_rag_async(
         queue="ingestion",
     )
 
-    document.status = "queued"
+    document.status = DOCUMENT_STATUS_QUEUED
     document.task_id = task.id
     document.error_message = None
 
@@ -513,7 +523,7 @@ def cancel_document_ingestion(
     task_result = AsyncResult(document.task_id, app=celery_app)
     celery_status = task_result.status
 
-    if document.status not in ["queued", "processing"]:
+    if document.status not in DOCUMENT_RUNNING_STATUSES:
         return DocumentCancelIngestionResult(
             document_id=document.id,
             task_id=document.task_id,
@@ -524,7 +534,7 @@ def cancel_document_ingestion(
 
     celery_app.control.revoke(document.task_id, terminate=False)
 
-    document.status = "cancelled"
+    document.status = DOCUMENT_STATUS_CANCELLED
     document.error_message = "Document ingestion task was cancelled by user"
     db.commit()
     db.refresh(document)
@@ -559,7 +569,7 @@ def retry_document_ingestion(
         knowledge_base_id=document.knowledge_base_id,
     )
 
-    if document.status in ["queued", "processing"] and document.task_id:
+    if document.status in DOCUMENT_RUNNING_STATUSES and document.task_id:
         return DocumentPrepareAsyncResult(
             document_id=document.id,
             task_id=document.task_id,
@@ -575,7 +585,7 @@ def retry_document_ingestion(
         queue="ingestion",
     )
 
-    document.status = "queued"
+    document.status = DOCUMENT_STATUS_QUEUED
     document.task_id = task.id
     document.error_message = None
 
@@ -620,10 +630,10 @@ def cancel_documents_batch_ingestion(
             task_result = AsyncResult(document.task_id, app=celery_app)
             celery_status = task_result.status
 
-        if document.status in ["queued", "processing"] and document.task_id:
+        if document.status in DOCUMENT_RUNNING_STATUSES and document.task_id:
             celery_app.control.revoke(document.task_id, terminate=False)
 
-            document.status = "cancelled"
+            document.status = DOCUMENT_STATUS_CANCELLED
             document.error_message = "Document ingestion task was cancelled by user"
 
             cancelled_count += 1
@@ -688,10 +698,8 @@ def retry_documents_batch_ingestion(
     queued_count = 0
     skipped_count = 0
 
-    retryable_statuses = ["failed", "cancelled", "pending"]
-
     for document in documents:
-        if document.status in ["queued", "processing"] and document.task_id:
+        if document.status in DOCUMENT_RUNNING_STATUSES and document.task_id:
             skipped_count += 1
 
             results.append(
@@ -706,7 +714,7 @@ def retry_documents_batch_ingestion(
 
             continue
 
-        if document.status not in retryable_statuses:
+        if document.status not in DOCUMENT_RETRYABLE_STATUSES:
             skipped_count += 1
 
             results.append(
@@ -729,7 +737,7 @@ def retry_documents_batch_ingestion(
             queue="ingestion",
         )
 
-        document.status = "queued"
+        document.status = DOCUMENT_STATUS_QUEUED
         document.task_id = task.id
         document.error_message = None
 
@@ -791,18 +799,18 @@ def get_documents_ingestion_status_batch(
             task_result = AsyncResult(document.task_id, app=celery_app)
             celery_status = task_result.status
 
-            if document.status == "completed":
-                completed_count += 1
-            elif document.status == "failed":
-                failed_count += 1
-            elif document.status == "queued":
-                queued_count += 1
-            elif document.status == "processing":
-                processing_count += 1
-            elif document.status == "pending":
-                pending_count += 1
-            elif document.status == "cancelled":
-                cancelled_count += 1
+        if document.status == DOCUMENT_STATUS_COMPLETED:
+            completed_count += 1
+        elif document.status == DOCUMENT_STATUS_FAILED:
+            failed_count += 1
+        elif document.status == DOCUMENT_STATUS_QUEUED:
+            queued_count += 1
+        elif document.status == DOCUMENT_STATUS_PROCESSING:
+            processing_count += 1
+        elif document.status == DOCUMENT_STATUS_PENDING:
+            pending_count += 1
+        elif document.status == DOCUMENT_STATUS_CANCELLED:
+            cancelled_count += 1
 
         results.append(
             {
@@ -890,7 +898,7 @@ def prepare_documents_batch(
                 DocumentPrepareItemResult(
                     document_id=document.id,
                     filename=document.filename,
-                    status="failed",
+                    status=DOCUMENT_STATUS_FAILED,
                     message=str(exc),
                 )
             )
@@ -946,7 +954,7 @@ def prepare_documents_batch_async(
 
             continue
 
-        if not force and document.status in ["queued", "processing"] and document.task_id:
+        if not force and document.status in DOCUMENT_RUNNING_STATUSES and document.task_id:
             skipped_count += 1
 
             results.append(
@@ -969,7 +977,7 @@ def prepare_documents_batch_async(
             queue="ingestion",
         )
 
-        document.status = "queued"
+        document.status = DOCUMENT_STATUS_QUEUED
         document.task_id = task.id
         document.error_message = None
 
@@ -979,7 +987,7 @@ def prepare_documents_batch_async(
             {
                 "document_id": document.id,
                 "filename": document.filename,
-                "status": "queued",
+                "status": DOCUMENT_STATUS_QUEUED,
                 "task_id": task.id,
                 "message": "Document preparation task queued",
             }

@@ -5,6 +5,12 @@ from app.models.document_chunk import DocumentChunk
 from app.services.document_parser import parse_document_file
 from app.services.text_splitter import split_text
 from app.services.embedding_service import create_embedding
+from app.core.document_status import (
+    DOCUMENT_STATUS_CANCELLED,
+    DOCUMENT_STATUS_COMPLETED,
+    DOCUMENT_STATUS_FAILED,
+    DOCUMENT_STATUS_PROCESSING,
+)
 
 
 def build_cancelled_result(
@@ -23,7 +29,7 @@ def build_cancelled_result(
 
 
 def is_document_ready_for_rag(document: Document, db: Session) -> bool:
-    if document.status != "completed":
+    if document.status != DOCUMENT_STATUS_COMPLETED:
         return False
 
     if not document.extracted_text:
@@ -49,11 +55,11 @@ def prepare_document_for_rag_sync(
     if document is None:
         raise ValueError("Document not found")
 
-    if document.status == "cancelled":
+    if document.status == DOCUMENT_STATUS_CANCELLED:
         return build_cancelled_result(document=document)
 
     if not document.storage_path:
-        document.status = "failed"
+        document.status = DOCUMENT_STATUS_FAILED
         document.error_message = "Document does not have a stored file"
         db.commit()
         raise ValueError("Document does not have a stored file")
@@ -82,7 +88,7 @@ def prepare_document_for_rag_sync(
         }
 
     try:
-        document.status = "processing"
+        document.status = DOCUMENT_STATUS_PROCESSING
         document.error_message = None
         db.commit()
 
@@ -93,7 +99,7 @@ def prepare_document_for_rag_sync(
 
         db.refresh(document)
 
-        if document.status == "cancelled":
+        if document.status == DOCUMENT_STATUS_CANCELLED:
             db.commit()
             return build_cancelled_result(document=document)
 
@@ -104,7 +110,7 @@ def prepare_document_for_rag_sync(
         db.commit()
         db.refresh(document)
 
-        if document.status == "cancelled":
+        if document.status == DOCUMENT_STATUS_CANCELLED:
             db.commit()
             return build_cancelled_result(document=document)
 
@@ -120,7 +126,7 @@ def prepare_document_for_rag_sync(
 
         db.refresh(document)
 
-        if document.status == "cancelled":
+        if document.status == DOCUMENT_STATUS_CANCELLED:
             db.commit()
             return build_cancelled_result(
                 document=document,
@@ -133,7 +139,7 @@ def prepare_document_for_rag_sync(
         for index, chunk_text in enumerate(chunks):
             db.refresh(document)
 
-            if document.status == "cancelled":
+            if document.status == DOCUMENT_STATUS_CANCELLED:
                 db.commit()
                 return build_cancelled_result(
                     document=document,
@@ -145,7 +151,7 @@ def prepare_document_for_rag_sync(
 
             db.refresh(document)
 
-            if document.status == "cancelled":
+            if document.status == DOCUMENT_STATUS_CANCELLED:
                 db.commit()
                 return build_cancelled_result(
                     document=document,
@@ -165,7 +171,7 @@ def prepare_document_for_rag_sync(
 
         db.refresh(document)
 
-        if document.status == "cancelled":
+        if document.status == DOCUMENT_STATUS_CANCELLED:
             db.commit()
             return build_cancelled_result(
                 document=document,
@@ -173,7 +179,7 @@ def prepare_document_for_rag_sync(
                 chunk_count=len(chunks),
             )
 
-        document.status = "completed"
+        document.status = DOCUMENT_STATUS_COMPLETED
         document.error_message = None
 
         db.commit()
@@ -193,8 +199,8 @@ def prepare_document_for_rag_sync(
 
         document = db.query(Document).filter(Document.id == document_id).first()
 
-        if document and document.status != "cancelled":
-            document.status = "failed"
+        if document and document.status != DOCUMENT_STATUS_CANCELLED:
+            document.status = DOCUMENT_STATUS_FAILED
             document.error_message = str(exc)
             db.commit()
 
