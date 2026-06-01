@@ -82,6 +82,7 @@ class DocumentIngestionStatusBatchResult(BaseModel):
     queued_count: int
     processing_count: int
     pending_count: int
+    cancelled_count: int
     results: list[DocumentIngestionStatusBatchItem]
 
 
@@ -91,3 +92,36 @@ class DocumentCancelIngestionResult(BaseModel):
     status: str
     celery_status: str | None = None
     message: str
+
+
+class DocumentBatchCancelIngestionItem(BaseModel):
+    document_id: int
+    filename: str
+    task_id: str | None = None
+    status: str
+    celery_status: str | None = None
+    message: str
+
+
+class DocumentBatchCancelIngestionResult(BaseModel):
+    knowledge_base_id: int
+    total_count: int
+    cancelled_count: int
+    skipped_count: int
+    results: list[DocumentBatchCancelIngestionItem]
+
+
+class DocumentBatchRetryIngestionItem(BaseModel):
+    document_id: int
+    filename: str
+    task_id: str | None = None
+    status: str
+    message: str
+
+
+class DocumentBatchRetryIngestionResult(BaseModel):
+    knowledge_base_id: int
+    total_count: int
+    queued_count: int
+    skipped_count: int
+    results: list[DocumentBatchRetryIngestionItem]

@@ -14,6 +14,8 @@ from app.models.document import Document
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.document import (
+    DocumentBatchCancelIngestionResult,
+    DocumentBatchRetryIngestionResult,
     DocumentCancelIngestionResult,
     DocumentCreate,
     DocumentIngestionStatusBatchResult,
@@ -588,6 +590,172 @@ def retry_document_ingestion(
     )
 
 
+@router.post("/cancel-batch-ingestion", response_model=DocumentBatchCancelIngestionResult)
+def cancel_documents_batch_ingestion(
+    knowledge_base_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    documents = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == knowledge_base_id)
+        .order_by(Document.created_at.asc())
+        .all()
+    )
+
+    results = []
+    cancelled_count = 0
+    skipped_count = 0
+
+    for document in documents:
+        celery_status = None
+
+        if document.task_id:
+            task_result = AsyncResult(document.task_id, app=celery_app)
+            celery_status = task_result.status
+
+        if document.status in ["queued", "processing"] and document.task_id:
+            celery_app.control.revoke(document.task_id, terminate=False)
+
+            document.status = "cancelled"
+            document.error_message = "Document ingestion task was cancelled by user"
+
+            cancelled_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "task_id": document.task_id,
+                    "status": document.status,
+                    "celery_status": celery_status,
+                    "message": "Document ingestion task cancellation requested",
+                }
+            )
+
+        else:
+            skipped_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "task_id": document.task_id,
+                    "status": document.status,
+                    "celery_status": celery_status,
+                    "message": "Document ingestion task is not running",
+                }
+            )
+
+    db.commit()
+
+    return {
+        "knowledge_base_id": knowledge_base_id,
+        "total_count": len(documents),
+        "cancelled_count": cancelled_count,
+        "skipped_count": skipped_count,
+        "results": results,
+    }
+
+
+@router.post("/retry-batch-ingestion", response_model=DocumentBatchRetryIngestionResult)
+def retry_documents_batch_ingestion(
+    knowledge_base_id: int = Query(...),
+    force: bool = Query(True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=knowledge_base_id,
+    )
+
+    documents = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == knowledge_base_id)
+        .order_by(Document.created_at.asc())
+        .all()
+    )
+
+    results = []
+    queued_count = 0
+    skipped_count = 0
+
+    retryable_statuses = ["failed", "cancelled", "pending"]
+
+    for document in documents:
+        if document.status in ["queued", "processing"] and document.task_id:
+            skipped_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "task_id": document.task_id,
+                    "status": document.status,
+                    "message": "Document ingestion task is already running",
+                }
+            )
+
+            continue
+
+        if document.status not in retryable_statuses:
+            skipped_count += 1
+
+            results.append(
+                {
+                    "document_id": document.id,
+                    "filename": document.filename,
+                    "task_id": document.task_id,
+                    "status": document.status,
+                    "message": "Document status is not retryable",
+                }
+            )
+
+            continue
+
+        task = prepare_document_task.apply_async(
+            kwargs={
+                "document_id": document.id,
+                "force": force,
+            },
+            queue="ingestion",
+        )
+
+        document.status = "queued"
+        document.task_id = task.id
+        document.error_message = None
+
+        queued_count += 1
+
+        results.append(
+            {
+                "document_id": document.id,
+                "filename": document.filename,
+                "task_id": task.id,
+                "status": document.status,
+                "message": "Document ingestion retry task queued",
+            }
+        )
+
+    db.commit()
+
+    return {
+        "knowledge_base_id": knowledge_base_id,
+        "total_count": len(documents),
+        "queued_count": queued_count,
+        "skipped_count": skipped_count,
+        "results": results,
+    }
+
+
 @router.get("/ingestion-status-batch", response_model=DocumentIngestionStatusBatchResult)
 def get_documents_ingestion_status_batch(
     knowledge_base_id: int = Query(...),
@@ -614,6 +782,7 @@ def get_documents_ingestion_status_batch(
     queued_count = 0
     processing_count = 0
     pending_count = 0
+    cancelled_count = 0
 
     for document in documents:
         celery_status = None
@@ -622,16 +791,18 @@ def get_documents_ingestion_status_batch(
             task_result = AsyncResult(document.task_id, app=celery_app)
             celery_status = task_result.status
 
-        if document.status == "completed":
-            completed_count += 1
-        elif document.status == "failed":
-            failed_count += 1
-        elif document.status == "queued":
-            queued_count += 1
-        elif document.status == "processing":
-            processing_count += 1
-        elif document.status == "pending":
-            pending_count += 1
+            if document.status == "completed":
+                completed_count += 1
+            elif document.status == "failed":
+                failed_count += 1
+            elif document.status == "queued":
+                queued_count += 1
+            elif document.status == "processing":
+                processing_count += 1
+            elif document.status == "pending":
+                pending_count += 1
+            elif document.status == "cancelled":
+                cancelled_count += 1
 
         results.append(
             {
@@ -652,6 +823,7 @@ def get_documents_ingestion_status_batch(
         "queued_count": queued_count,
         "processing_count": processing_count,
         "pending_count": pending_count,
+        "cancelled_count": cancelled_count,
         "results": results,
     }
 
