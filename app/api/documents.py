@@ -13,7 +13,15 @@ from app.db.session import get_db
 from app.models.document import Document
 from app.models.membership import Membership
 from app.models.user import User
-from app.schemas.document import DocumentCreate, DocumentProcessResult, DocumentRead
+from app.schemas.document import (
+    DocumentCreate,
+    DocumentIngestionStatusBatchResult,
+    DocumentIngestionStatusResult,
+    DocumentPrepareAsyncResult,
+    DocumentPrepareBatchAsyncResult,
+    DocumentProcessResult,
+    DocumentRead,
+)
 from app.services.document_parser import parse_document_file
 from app.models.document_chunk import DocumentChunk
 from app.schemas.document_chunk import DocumentChunkRead, DocumentChunkResult
@@ -378,7 +386,7 @@ def prepare_document_for_rag(
         )
 
 
-@router.post("/{document_id}/prepare-async")
+@router.post("/{document_id}/prepare-async", response_model=DocumentPrepareAsyncResult)
 def prepare_document_for_rag_async(
     document_id: int,
     force: bool = Query(False),
@@ -430,7 +438,7 @@ def prepare_document_for_rag_async(
     }
 
 
-@router.get("/{document_id}/ingestion-status")
+@router.get("/{document_id}/ingestion-status", response_model=DocumentIngestionStatusResult)
 def get_document_ingestion_status(
     document_id: int,
     current_user: User = Depends(get_current_user),
@@ -473,7 +481,7 @@ def get_document_ingestion_status(
     }
 
 
-@router.get("/ingestion-status-batch")
+@router.get("/ingestion-status-batch", response_model=DocumentIngestionStatusBatchResult)
 def get_documents_ingestion_status_batch(
     knowledge_base_id: int = Query(...),
     current_user: User = Depends(get_current_user),
@@ -618,7 +626,7 @@ def prepare_documents_batch(
     )
 
 
-@router.post("/prepare-batch-async")
+@router.post("/prepare-batch-async", response_model=DocumentPrepareBatchAsyncResult)
 def prepare_documents_batch_async(
     knowledge_base_id: int = Query(...),
     force: bool = Query(False),
