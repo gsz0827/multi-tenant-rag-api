@@ -26,6 +26,7 @@ class Document(Base):
     extracted_text = Column(Text, nullable=True)
 
     status = Column(String(50), default="pending", nullable=False)
+    task_id = Column(String(255), nullable=True, index=True)
     error_message = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

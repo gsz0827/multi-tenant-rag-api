@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+from celery.result import AsyncResult
 
 from app.api.deps import get_accessible_knowledge_base
 from app.api.users import get_current_user
@@ -24,7 +25,8 @@ from app.schemas.embedding import (
     DocumentPrepareResult,
 )
 from app.services.embedding_service import create_embedding
-
+from app.worker.celery_app import celery_app
+from app.worker.tasks import prepare_document_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -472,6 +474,93 @@ def prepare_document_for_rag(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to prepare document for RAG: {exc}",
         )
+
+
+@router.post("/{document_id}/prepare-async")
+def prepare_document_for_rag_async(
+    document_id: int,
+    force: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    task = prepare_document_task.apply_async(
+        kwargs={
+            "document_id": document.id,
+            "force": force,
+        },
+        queue="ingestion",
+    )
+
+    document.status = "queued"
+    document.task_id = task.id
+    document.error_message = None
+
+    db.commit()
+    db.refresh(document)
+
+    return {
+        "document_id": document.id,
+        "task_id": task.id,
+        "status": document.status,
+        "message": "Document preparation task queued",
+    }
+
+
+@router.get("/{document_id}/ingestion-status")
+def get_document_ingestion_status(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    get_accessible_knowledge_base(
+        db=db,
+        user=current_user,
+        knowledge_base_id=document.knowledge_base_id,
+    )
+
+    celery_status = None
+    celery_result = None
+
+    if document.task_id:
+        task_result = AsyncResult(document.task_id, app=celery_app)
+        celery_status = task_result.status
+
+        if task_result.successful():
+            celery_result = task_result.result
+
+        if task_result.failed():
+            celery_result = str(task_result.result)
+
+    return {
+        "document_id": document.id,
+        "document_status": document.status,
+        "task_id": document.task_id,
+        "celery_status": celery_status,
+        "error_message": document.error_message,
+        "result": celery_result,
+    }
 
 
 @router.post("/prepare-batch", response_model=DocumentPrepareBatchResult)
