@@ -4,6 +4,10 @@ export const api = axios.create({
   baseURL: "/api",
 });
 
+export function clearAccessToken() {
+  localStorage.removeItem("access_token");
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token");
 
@@ -13,6 +17,17 @@ api.interceptors.request.use((config) => {
 
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearAccessToken();
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export async function login(email: string, password: string) {
   const formData = new URLSearchParams();
@@ -32,6 +47,15 @@ export async function login(email: string, password: string) {
 
 export async function listKnowledgeBases() {
   const response = await api.get("/knowledge-bases");
+  return response.data;
+}
+
+export async function createKnowledgeBase(data: {
+  organization_id: number;
+  name: string;
+  description?: string;
+}) {
+  const response = await api.post("/knowledge-bases", data);
   return response.data;
 }
 
@@ -122,6 +146,22 @@ export async function retryBatchIngestion(knowledgeBaseId: number, force = true)
       knowledge_base_id: knowledgeBaseId,
       force,
     },
+  });
+
+  return response.data;
+}
+
+export async function askKnowledgeBase(data: {
+  knowledge_base_id: number;
+  question: string;
+  top_k?: number;
+  answer_language?: "auto" | "zh" | "en";
+}) {
+  const response = await api.post("/rag/ask", {
+    knowledge_base_id: data.knowledge_base_id,
+    question: data.question,
+    top_k: data.top_k ?? 5,
+    answer_language: data.answer_language ?? "auto",
   });
 
   return response.data;
