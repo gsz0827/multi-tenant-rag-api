@@ -577,6 +577,12 @@ def retry_document_ingestion(
             message="Document preparation task is already running",
         )
 
+    if document.status not in DOCUMENT_RETRYABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document status is not retryable",
+        )
+
     task = prepare_document_task.apply_async(
         kwargs={
             "document_id": document.id,
