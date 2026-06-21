@@ -1,0 +1,8 @@
+{
+  "name": "Local Pytest Runner",
+  "type": "local",
+  "url": "",
+  "buildName": "multi-tenant-rag-api-api-tests",
+  "buildUrl": "",
+  "reportName": "Multi Tenant RAG API Test Report"
+}

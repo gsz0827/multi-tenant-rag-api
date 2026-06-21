@@ -1,0 +1,9 @@
+-r requirements.txt
+
+pytest-cov      #覆盖率统计
+pytest-xdist    #并发执行测试
+pytest-mock     #mock 外部服务，比如 embedding / LLM
+pytest-env      #测试环境变量管理
+PyYAML          #读取 YAML 测试数据
+allure-pytest   #生成 Allure 测试结果
+faker           #生成随机邮箱、用户名、测试数据

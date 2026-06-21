@@ -1,0 +1,15 @@
+create_success:
+  name: "自动化测试知识库"
+  description: "这是 pytest 创建的测试知识库"
+  expected_status: 200
+
+create_without_token:
+  name: "未登录知识库"
+  description: "没有 token 的情况下创建知识库"
+  expected_status: 401
+
+list_success:
+  expected_status: 200
+
+detail_success:
+  expected_status: 200

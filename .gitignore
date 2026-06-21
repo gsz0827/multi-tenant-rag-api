@@ -37,3 +37,17 @@ dev.db
 
 # Uploaded files
 storage/
+
+# Python 缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 测试报告
+reports/
+allure-results/
+allure-report/
+
+# 覆盖率文件
+.coverage
+htmlcov/

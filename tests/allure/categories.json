@@ -1,0 +1,22 @@
+[
+  {
+    "name": "接口状态码错误",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*状态码断言失败.*"
+  },
+  {
+    "name": "响应字段缺失",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*响应 JSON 缺少字段.*"
+  },
+  {
+    "name": "字段值断言失败",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*字段断言失败.*"
+  },
+  {
+    "name": "接口异常或服务错误",
+    "matchedStatuses": ["broken"],
+    "traceRegex": ".*"
+  }
+]

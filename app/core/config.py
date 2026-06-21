@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "aliyun"
     ALIYUN_CHAT_MODEL: str = "qwen-plus"
 
-    # RAG 最小相似度阈值
+    # RAG 最小相似度阈值（过滤太不相关的 chunk）
     RAG_MIN_SCORE: float = 0.2
 
     # Celery + Redis 配置

@@ -1,0 +1,16 @@
+register_success:
+  email: "test_user@example.com"
+  username: "test_user"
+  full_name: "Test User"
+  password: "TestPassword123"
+  expected_status: 200
+
+login_success:
+  username: "test_user@example.com"
+  password: "TestPassword123"
+  expected_status: 200
+
+login_wrong_password:
+  username: "test_user@example.com"
+  password: "WrongPassword123"
+  expected_status: 401

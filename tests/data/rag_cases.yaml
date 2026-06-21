@@ -1,0 +1,17 @@
+ask_without_token:
+  question: "未登录可以访问 RAG 问答吗？"
+  top_k: 3
+  answer_language: "zh"
+  expected_status: 401
+
+ask_invalid_answer_language:
+  question: "RAG 系统的作用是什么？"
+  top_k: 3
+  answer_language: "jp"
+  expected_status: 400
+
+ask_no_embedded_chunks:
+  question: "这个知识库里有什么内容？"
+  top_k: 3
+  answer_language: "zh"
+  expected_status: 404
