@@ -1,10 +1,5 @@
 name: API Tests
 
-# ==============================
-# 触发条件
-# push 到 main 分支，或者向 main 发起 PR 时自动运行
-# 也支持手动点击运行 workflow_dispatch
-# ==============================
 on:
   push:
     branches:
@@ -19,11 +14,6 @@ jobs:
     name: Run Pytest API Tests
     runs-on: ubuntu-latest
 
-    # ==============================
-    # CI 运行时依赖的服务
-    # PostgreSQL 使用 pgvector 镜像
-    # Redis 用于 Celery broker / result backend
-    # ==============================
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -37,7 +27,7 @@ jobs:
           --health-cmd="pg_isready -U postgres -d rag_test"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=10
 
       redis:
         image: redis:7
@@ -47,77 +37,80 @@ jobs:
           --health-cmd="redis-cli ping"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=10
 
-    # ==============================
-    # 测试环境变量
-    # 注意：
-    # 这里使用 fake embedding，避免 CI 调用真实外部模型服务
-    # ==============================
     env:
       APP_ENV: test
       API_PREFIX: /api
       SECRET_KEY: test-secret-key-for-ci
+
+      # 核心数据库连接
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rag_test
+
+      # 兼容项目中可能使用的拆分式数据库配置
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: rag_test
+
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: rag_test
+
       CELERY_BROKER_URL: redis://localhost:6379/0
       CELERY_RESULT_BACKEND: redis://localhost:6379/1
+
       EMBEDDING_PROVIDER: fake
       OPENAI_API_KEY: dummy-key-for-ci
 
     steps:
-      # ==============================
-      # 1. 拉取仓库代码
-      # ==============================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==============================
-      # 2. 安装 Python
-      # ==============================
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.10"
           cache: "pip"
 
-      # ==============================
-      # 3. 安装 Node.js
-      # Allure npm 版需要 node/npm
-      # ==============================
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      # ==============================
-      # 4. 安装 Python 测试依赖
-      # ==============================
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      # ==============================
-      # 5. 安装 Allure CLI
-      # ==============================
       - name: Install Allure CLI
         run: |
           npm install -g allure
           allure --version
 
-      # ==============================
-      # 6. 安装 PostgreSQL client
-      # 用于手动创建 pgvector extension
-      # ==============================
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      # ==============================
-      # 7. 创建 pgvector 扩展
-      # 如果 Alembic 里已经创建了 extension，这一步也不会冲突
-      # ==============================
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres -d rag_test; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Debug database env
+        run: |
+          echo "DATABASE_URL=$DATABASE_URL"
+          echo "DB_HOST=$DB_HOST"
+          echo "DB_USER=$DB_USER"
+          echo "DB_NAME=$DB_NAME"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d rag_test -c "SELECT current_user, current_database();"
+
       - name: Enable pgvector extension
         run: |
           PGPASSWORD=postgres psql \
@@ -126,26 +119,14 @@ jobs:
             -d rag_test \
             -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-      # ==============================
-      # 8. 执行数据库迁移
-      # 确保 CI 数据库表结构和项目一致
-      # ==============================
       - name: Run database migrations
         run: |
           alembic upgrade head
 
-      # ==============================
-      # 9. 运行 API 自动化测试并生成 Allure 报告
-      # 复用你本地已经写好的脚本
-      # ==============================
       - name: Run API tests
         run: |
           bash scripts/run_api_tests.sh
 
-      # ==============================
-      # 10. 上传 Allure 原始结果
-      # 方便后续二次生成报告
-      # ==============================
       - name: Upload Allure results
         if: always()
         uses: actions/upload-artifact@v7
@@ -154,10 +135,6 @@ jobs:
           path: reports/allure-results
           if-no-files-found: warn
 
-      # ==============================
-      # 11. 上传 Allure HTML 报告
-      # 可以在 GitHub Actions 页面下载查看
-      # ==============================
       - name: Upload Allure HTML report
         if: always()
         uses: actions/upload-artifact@v7
