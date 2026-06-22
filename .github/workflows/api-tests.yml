@@ -121,6 +121,7 @@ jobs:
 
       - name: Run database migrations
         run: |
+          echo "DATABASE_URL=$DATABASE_URL"
           alembic upgrade head
 
       - name: Run API tests
