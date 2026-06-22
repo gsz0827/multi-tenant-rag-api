@@ -120,8 +120,17 @@ jobs:
             -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
+          SQLALCHEMY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
         run: |
           echo "DATABASE_URL=$DATABASE_URL"
+          echo "检查 alembic.ini 中是否仍有 rag_user："
+          grep -n "rag_user" alembic.ini || true
+
+          echo "检查 alembic/env.py 中是否包含 DATABASE_URL 逻辑："
+          grep -n "DATABASE_URL" alembic/env.py || true
+
           alembic upgrade head
 
       - name: Run API tests
