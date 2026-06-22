@@ -18,13 +18,13 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: rag_test
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: rag_password
+          POSTGRES_DB: rag_db
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres -d rag_test"
+          --health-cmd="pg_isready -U rag_user -d rag_db"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -44,21 +44,8 @@ jobs:
       API_PREFIX: /api
       SECRET_KEY: test-secret-key-for-ci
 
-      # 核心数据库连接
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rag_test
-
-      # 兼容项目中可能使用的拆分式数据库配置
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: rag_test
-
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: rag_test
+      DATABASE_URL: postgresql://rag_user:rag_password@localhost:5432/rag_db
+      SQLALCHEMY_DATABASE_URL: postgresql://rag_user:rag_password@localhost:5432/rag_db
 
       CELERY_BROKER_URL: redis://localhost:6379/0
       CELERY_RESULT_BACKEND: redis://localhost:6379/1
@@ -98,38 +85,30 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          until pg_isready -h localhost -p 5432 -U postgres -d rag_test; do
+          until PGPASSWORD=rag_password pg_isready -h localhost -p 5432 -U rag_user -d rag_db; do
             echo "Waiting for PostgreSQL..."
             sleep 2
           done
 
-      - name: Debug database env
+      - name: Debug database connection
         run: |
-          echo "DATABASE_URL=$DATABASE_URL"
-          echo "DB_HOST=$DB_HOST"
-          echo "DB_USER=$DB_USER"
-          echo "DB_NAME=$DB_NAME"
-          PGPASSWORD=postgres psql -h localhost -U postgres -d rag_test -c "SELECT current_user, current_database();"
+          echo "Check database connection"
+          PGPASSWORD=rag_password psql \
+            -h localhost \
+            -U rag_user \
+            -d rag_db \
+            -c "SELECT current_user, current_database();"
 
       - name: Enable pgvector extension
         run: |
-          PGPASSWORD=postgres psql \
+          PGPASSWORD=rag_password psql \
             -h localhost \
-            -U postgres \
-            -d rag_test \
+            -U rag_user \
+            -d rag_db \
             -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-      - name: Remove local env file in CI
-        run: |
-          rm -f .env
-          echo "Current DATABASE_URL=$DATABASE_URL"
-
       - name: Run database migrations
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
-          SQLALCHEMY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
         run: |
-          echo "DATABASE_URL=$DATABASE_URL"
           alembic upgrade head
 
       - name: Run API tests
